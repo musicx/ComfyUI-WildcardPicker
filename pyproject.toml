@@ -1,0 +1,11 @@
+[project]
+name = "comfyui-wildcardpicker"
+version = "0.1.0"
+description = "Visual browser for the wildcards library; feeds Impact-Pack's WildcardProcessor."
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML",
+]
+
+[project.urls]
+Repository = "https://github.com/local/ComfyUI-WildcardPicker"

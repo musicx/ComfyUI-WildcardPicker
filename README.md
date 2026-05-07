@@ -24,16 +24,25 @@ ComfyUI dependency).
 ## Quick start
 
 1. Add a `Wildcard Picker 🌳` node to your workflow.
-2. Add an `ImpactWildcardProcessor` (from comfyui-impact-pack).
-3. Wire WildcardPicker `text` → ImpactWildcardProcessor `wildcard_text`
-   (right-click the input slot → "Convert wildcard_text to input").
-4. Click **📂 Browse wildcards** on the picker node.
-5. Find a leaf in the tree → click → choose insertion mode → **Append**.
-6. Run the workflow. Impact-Pack will expand all `__refs__`, `[a|b|c]`,
-   `{a|b|c}`, etc.
+2. Click **📂 Browse wildcards** on the node.
+3. Find a leaf in the tree → click → choose insertion mode → **Append**.
+4. Wire WildcardPicker `text` output to your `CLIPTextEncode` (or
+   `ShowText` to inspect, or anything that takes a STRING).
+5. Run. The node calls Impact-Pack's wildcards parser internally and
+   outputs the resolved text — no separate processor node required.
+
+Set the seed control to `randomize` for a fresh sample every run, or
+`fixed` to reproduce the current output.
 
 There's a ready-made example workflow at
 `ComfyUI/user/default/workflows/Collected_Workflows/wildcardpicker_example.json`.
+
+> **Why no ImpactWildcardProcessor?** Impact-Pack's "populate" mode is
+> driven by the frontend before workflow submission. Once you convert
+> its `wildcard_text` to an input slot (so something else can feed it),
+> the frontend can't read the upstream value and the populate flow
+> silently no-ops. WildcardPicker calls the same parser internally at
+> execution time, sidestepping that limitation.
 
 ## Tree structure
 
@@ -97,19 +106,18 @@ wildcards repo update.
 ## Architecture
 
 ```
-WildcardPicker node (passthrough text)
-    │
-    ▼ (wired by user via "Convert to input")
-ImpactWildcardProcessor (resolves all syntax)
-    │
-    ▼
-your CLIPTextEncode / KSampler / etc.
+WildcardPicker
+  text widget   ← composed via JS modal (browse → click → Append)
+  seed widget   ← randomize or fix
+  ───────
+  process()     ← calls impact.wildcards.process(text, seed) at exec time
+  output STRING ───────────────► your CLIPTextEncode / ShowText / etc.
 ```
 
-The picker node is intentionally dumb — it just holds text. All
-intelligence is in the JS modal (browsing/composing) and Impact-Pack
-(parsing/resolving). This keeps the surface area small and reuses the
-ecosystem's mature wildcards parser.
+The picker holds text + seed and resolves at execution time using
+Impact-Pack's parser. No custom syntax, no reimplementation — we delegate
+parsing to the ecosystem's mature implementation. The Browse modal is
+purely a UI helper that mutates the text widget.
 
 See [docs/PLAN.md](docs/PLAN.md) and [docs/api.md](docs/api.md) for
 internals.

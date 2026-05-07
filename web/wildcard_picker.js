@@ -147,13 +147,31 @@ function ensureStyles() {
     background: #181818;
 }
 .wp-preview-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
     padding: 4px 10px;
     border-bottom: 1px solid #2a2a2a;
     font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+.wp-preview-row .wp-row-text {
     white-space: pre-wrap;
     word-break: break-word;
-    cursor: default;
+    flex: 1;
     user-select: text;
+}
+.wp-preview-row .wp-row-cb {
+    margin-top: 2px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.wp-preview-row.wp-row-selected {
+    background: #1f3550;
+}
+.wp-preview-row.wp-row-selected:hover {
+    background: #234063;
 }
 .wp-preview-row:last-child { border-bottom: none; }
 .wp-preview-row:hover { background: #232323; }
@@ -244,6 +262,60 @@ function ensureStyles() {
     color: #666;
     cursor: not-allowed;
 }
+.wp-insertion {
+    margin-top: 12px;
+    padding: 10px 12px;
+    background: #232323;
+    border: 1px solid #333;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.wp-insertion-row {
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: #ccc;
+}
+.wp-insertion-row:last-child { margin-bottom: 0; }
+.wp-insertion-row label {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 14px;
+    cursor: pointer;
+}
+.wp-insertion-row label input {
+    margin-right: 4px;
+    cursor: pointer;
+}
+.wp-insertion-row label:has(input:disabled) {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.wp-insertion-row label:has(input:disabled) input {
+    cursor: not-allowed;
+}
+.wp-live-preview-label {
+    color: #888;
+    font-size: 11px;
+    margin: 8px 0 4px;
+}
+.wp-live-preview {
+    padding: 8px 10px;
+    background: #181818;
+    border: 1px dashed #444;
+    border-radius: 3px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    min-height: 24px;
+    max-height: 120px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #a8d4f0;
+}
+.wp-live-preview.wp-live-invalid {
+    color: #b87a7a;
+    font-style: italic;
+}
 .wp-toast {
     position: fixed;
     bottom: 30px;
@@ -290,7 +362,8 @@ function ensureModal() {
         </div>
         <div class="wp-footer">
             <button class="wp-btn wp-btn-secondary wp-cancel">Cancel</button>
-            <button class="wp-btn wp-insert" disabled>Insert (M4)</button>
+            <button class="wp-btn wp-btn-secondary wp-replace" disabled title="Replace current selection in textarea">Replace selection</button>
+            <button class="wp-btn wp-append" disabled title="Append to the end of the textarea">Append ↩</button>
         </div>
     `;
     document.body.appendChild(_modal);
@@ -300,6 +373,8 @@ function ensureModal() {
     _modal.querySelector(".wp-cancel").addEventListener("click", closeModal);
     _modal.querySelector(".wp-refresh").addEventListener("click", onRefresh);
     _modal.querySelector(".wp-search").addEventListener("input", onSearchInput);
+    _modal.querySelector(".wp-append").addEventListener("click", onAppend);
+    _modal.querySelector(".wp-replace").addEventListener("click", onReplaceSelection);
 
     // Esc and click-outside close
     _modal.addEventListener("cancel", (e) => { /* default Esc handler is fine */ });
@@ -477,22 +552,221 @@ function renderPreview(payload) {
         raw.className = "wp-preview-raw";
         raw.textContent = payload.raw;
         preview.appendChild(raw);
-        return;
+    } else {
+        const list = document.createElement("div");
+        list.className = "wp-preview-list";
+        if (!payload.lines.length) {
+            list.innerHTML = `<div class="wp-preview-row" style="color:#777"><span class="wp-row-text">(empty)</span></div>`;
+        } else {
+            for (const line of payload.lines) {
+                list.appendChild(renderPreviewRow(line));
+            }
+        }
+        preview.appendChild(list);
     }
 
-    const list = document.createElement("div");
-    list.className = "wp-preview-list";
-    if (!payload.lines.length) {
-        list.innerHTML = `<div class="wp-preview-row" style="color:#777">(empty)</div>`;
-    } else {
-        for (const line of payload.lines) {
-            const row = document.createElement("div");
-            row.className = "wp-preview-row";
-            row.textContent = line;
-            list.appendChild(row);
-        }
+    preview.appendChild(renderInsertionControls(payload));
+    updateLivePreview();
+}
+
+function renderPreviewRow(line) {
+    const row = document.createElement("div");
+    row.className = "wp-preview-row";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.className = "wp-row-cb";
+    cb.addEventListener("change", () => {
+        row.classList.toggle("wp-row-selected", cb.checked);
+        updateLivePreview();
+    });
+    cb.addEventListener("click", (e) => e.stopPropagation());
+    const span = document.createElement("span");
+    span.className = "wp-row-text";
+    span.textContent = line;
+    row.appendChild(cb);
+    row.appendChild(span);
+    row.addEventListener("click", () => {
+        cb.checked = !cb.checked;
+        row.classList.toggle("wp-row-selected", cb.checked);
+        updateLivePreview();
+    });
+    return row;
+}
+
+function renderInsertionControls(payload) {
+    const wrap = document.createElement("div");
+    wrap.className = "wp-insertion";
+
+    const isMulti = payload.kind === "txt" || payload.kind === "yaml_list";
+    const literalAvail = isMulti || payload.kind === "yaml_string" || payload.kind === "yaml_template";
+    const altAvail = isMulti;
+    const multiAvail = isMulti;
+
+    wrap.innerHTML = `
+        <div class="wp-insertion-row">
+            <label><input type="radio" name="wp-mode" value="ref" checked> As reference</label>
+            <label><input type="radio" name="wp-mode" value="literal" ${literalAvail ? "" : "disabled"}> As literal</label>
+            <label><input type="radio" name="wp-mode" value="alt" ${altAvail ? "" : "disabled"}> As alternation</label>
+            <label><input type="radio" name="wp-mode" value="multi" ${multiAvail ? "" : "disabled"}> As multi-pick</label>
+        </div>
+        <div class="wp-insertion-row">
+            <label><input type="checkbox" class="wp-mod-empty"> Wrap with empty option</label>
+            <label title="Coming in v0.4"><input type="checkbox" class="wp-mod-dups" disabled> Allow duplicates (v0.4)</label>
+        </div>
+        <div class="wp-live-preview-label">Will insert:</div>
+        <div class="wp-live-preview"></div>
+    `;
+
+    wrap.querySelectorAll('input[name="wp-mode"]').forEach(r =>
+        r.addEventListener("change", updateLivePreview));
+    wrap.querySelector(".wp-mod-empty").addEventListener("change", updateLivePreview);
+
+    return wrap;
+}
+
+// =========================================================================
+// Insertion-text construction
+// =========================================================================
+function getCurrentMode() {
+    const r = _modal.querySelector('input[name="wp-mode"]:checked');
+    return r ? r.value : "ref";
+}
+
+function getModifiers() {
+    return {
+        empty: _modal.querySelector(".wp-mod-empty")?.checked || false,
+    };
+}
+
+function getSelectedRowLines() {
+    const rows = _modal.querySelectorAll(".wp-preview-row");
+    return [...rows]
+        .filter(r => r.querySelector(".wp-row-cb")?.checked)
+        .map(r => r.querySelector(".wp-row-text")?.textContent || "");
+}
+
+/**
+ * Compute the text the Append/Replace buttons will insert, plus a validity flag.
+ * Returns { text: string, valid: boolean, hint: string }.
+ *   - text: literal output (always a string, never null)
+ *   - valid: whether Append/Replace should be enabled
+ *   - hint: when invalid, a short user-facing reason; otherwise empty
+ */
+function buildInsertion() {
+    if (!_selected) return { text: "", valid: false, hint: "(no leaf selected)" };
+    const mode = getCurrentMode();
+    const mods = getModifiers();
+    const path = _selected.path;
+    const kind = _selected.kind;
+
+    if (mode === "ref") {
+        return { text: `__${path}__`, valid: true, hint: "" };
     }
-    preview.appendChild(list);
+    if (mode === "literal") {
+        if (kind === "yaml_string") {
+            return { text: _selected.lines[0] || "", valid: true, hint: "" };
+        }
+        if (kind === "yaml_template") {
+            return { text: _selected.raw || "", valid: true, hint: "" };
+        }
+        const sel = getSelectedRowLines();
+        if (!sel.length) return { text: "(select one or more rows)", valid: false, hint: "select rows" };
+        return { text: sel.join(", "), valid: true, hint: "" };
+    }
+    if (mode === "alt") {
+        const sel = getSelectedRowLines();
+        if (!sel.length) return { text: "(select one or more rows)", valid: false, hint: "select rows" };
+        const tail = mods.empty ? "|" : "";
+        return { text: `{${sel.join("|")}${tail}}`, valid: true, hint: "" };
+    }
+    if (mode === "multi") {
+        const sel = getSelectedRowLines();
+        if (!sel.length) return { text: "(select one or more rows)", valid: false, hint: "select rows" };
+        const n = sel.length;
+        const tail = mods.empty ? "|" : "";
+        const hi = mods.empty ? n : n;  // empty option doesn't change max pickable distinct lines
+        return { text: `{1-${hi}$$, $$${sel.join("|")}${tail}}`, valid: true, hint: "" };
+    }
+    return { text: "", valid: false, hint: "unknown mode" };
+}
+
+function updateLivePreview() {
+    const lp = _modal.querySelector(".wp-live-preview");
+    const append = _modal.querySelector(".wp-append");
+    const replace = _modal.querySelector(".wp-replace");
+    if (!lp) return;
+    const { text, valid } = buildInsertion();
+    lp.textContent = text;
+    lp.classList.toggle("wp-live-invalid", !valid);
+    if (append) append.disabled = !valid;
+    if (replace) replace.disabled = !valid;
+}
+
+// =========================================================================
+// Insertion actions (Append / Replace selection)
+// =========================================================================
+function getTextarea(widget) {
+    // ComfyUI multiline STRING widget: the actual <textarea> is exposed at
+    // widget.element (newer frontend) or widget.inputEl (older). Either way
+    // we only use it for selection-aware Replace.
+    return widget?.element || widget?.inputEl || null;
+}
+
+function notifyWidgetChanged(widget) {
+    // Trigger ComfyUI's change handling so the canvas reflects the new value.
+    if (typeof widget.callback === "function") {
+        widget.callback(widget.value);
+    }
+    const ta = getTextarea(widget);
+    if (ta) {
+        ta.value = widget.value;
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    // Trigger node redraw if possible
+    if (_ctx?.node?.graph?.setDirtyCanvas) {
+        _ctx.node.graph.setDirtyCanvas(true, true);
+    }
+}
+
+function onAppend() {
+    if (!_ctx?.textWidget) return;
+    const { text, valid } = buildInsertion();
+    if (!valid) return;
+    const w = _ctx.textWidget;
+    const cur = w.value || "";
+    const sep = cur && !cur.endsWith("\n") ? "\n" : "";
+    w.value = cur + sep + text;
+    notifyWidgetChanged(w);
+    closeModal();
+}
+
+function onReplaceSelection() {
+    if (!_ctx?.textWidget) return;
+    const { text, valid } = buildInsertion();
+    if (!valid) return;
+    const w = _ctx.textWidget;
+    const ta = getTextarea(w);
+    if (ta && typeof ta.selectionStart === "number") {
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const cur = w.value || "";
+        const next = cur.substring(0, start) + text + cur.substring(end);
+        w.value = next;
+        notifyWidgetChanged(w);
+        // Restore caret to end of inserted text
+        try {
+            ta.focus();
+            const newPos = start + text.length;
+            ta.setSelectionRange(newPos, newPos);
+        } catch (_) { /* best effort */ }
+    } else {
+        // No accessible textarea — fall back to append
+        const cur = w.value || "";
+        const sep = cur && !cur.endsWith("\n") ? "\n" : "";
+        w.value = cur + sep + text;
+        notifyWidgetChanged(w);
+    }
+    closeModal();
 }
 
 // =========================================================================

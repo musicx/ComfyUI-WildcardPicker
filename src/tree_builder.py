@@ -179,6 +179,13 @@ class TreeIndex:
 
         # The yaml file itself is a container whose 'path' is the filename
         # (used purely as a visible tag in the tree; not a reference path).
+        # Surface the most useful count: the number of immediate children
+        # under the (typically single) yaml top key, not the always-1 count
+        # of top keys themselves.
+        if len(children) == 1 and children[0].get("count") is not None:
+            count = children[0]["count"]
+        else:
+            count = sum((c.get("count") or 0) for c in children)
         return {
             "kind": "yaml",
             "name": filename,
@@ -186,7 +193,7 @@ class TreeIndex:
             # without confusing it for a real ref path. We never store this in
             # _leaves, so it can never be loaded as a file.
             "path": f"@yaml:{filename}",
-            "count": len(children),
+            "count": count,
             "children": children,
         }
 

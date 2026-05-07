@@ -779,6 +779,8 @@ function onSearchInput(e) {
 
 function applyFilter(term) {
     const treePane = _modal.querySelector(".wp-tree");
+    // Drop any prior empty-state notice
+    treePane.querySelector(".wp-empty-state")?.remove();
     if (!term) {
         // Reset: show everything, collapse to original
         treePane.querySelectorAll(".wp-hide").forEach(x => x.classList.remove("wp-hide"));
@@ -786,7 +788,13 @@ function applyFilter(term) {
     }
     // Walk every node element. For leaves: hide if neither name nor path matches.
     // For containers: hide if no descendant matches; otherwise expand.
-    walkAndFilter(treePane, term);
+    const anyMatch = walkAndFilter(treePane, term);
+    if (!anyMatch) {
+        const empty = document.createElement("div");
+        empty.className = "wp-empty-state wp-preview-empty";
+        empty.textContent = `No matches for "${term}".`;
+        treePane.appendChild(empty);
+    }
 }
 
 function walkAndFilter(parentEl, term) {

@@ -59,8 +59,19 @@ def _classify_yaml_value(value: Any) -> Optional[str]:
 
 
 class TreeIndex:
-    def __init__(self, root: str):
-        self.root = root
+    def __init__(self, roots):
+        """Accept either a single fs path (str) or a list of (label, fs_path).
+
+        With multiple roots, the visible tree shows one labeled wrapper
+        container per root; reference paths inside each are unmodified
+        (matching Impact-Pack's flat key namespace). When the same path
+        exists in multiple roots, last-wins for click-to-load — same as
+        Impact-Pack's runtime override behavior.
+        """
+        if isinstance(roots, str):
+            self.roots: list[tuple[str, str]] = [("Wildcards", roots)]
+        else:
+            self.roots = list(roots)
         self.tree: dict = {}
         # ref_path -> source descriptor for leaf loading
         # txt:        {"kind":"txt", "fs":<abs path to .txt>}
@@ -75,13 +86,36 @@ class TreeIndex:
     def refresh(self) -> None:
         self._leaves.clear()
         self._yaml_cache.clear()
-        if not os.path.isdir(self.root):
+
+        wrappers: list[dict] = []
+        for label, fs in self.roots:
+            if not os.path.isdir(fs):
+                continue
+            sub = self._walk_dir(fs, "")
+            wrappers.append({
+                "kind": "dir",
+                "name": label,
+                # Sentinel path so the JS doesn't mistake this for a real
+                # reference. Never registered in _leaves.
+                "path": f"@root:{label}",
+                "count": sub.get("count", 0),
+                "children": sub.get("children", []),
+            })
+
+        if not wrappers:
             self.tree = {
                 "kind": "dir", "name": "<missing>", "path": "",
                 "count": 0, "children": [],
             }
             return
-        self.tree = self._walk_dir(self.root, "")
+
+        self.tree = {
+            "kind": "dir",
+            "name": "<root>",
+            "path": "",
+            "count": len(wrappers),
+            "children": wrappers,
+        }
 
     def get_file(self, ref_path: str) -> Optional[dict]:
         """Return file payload dict, or None if ref not in index."""

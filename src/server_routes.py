@@ -14,7 +14,7 @@ import time
 from aiohttp import web
 import server  # ComfyUI's server module — provides PromptServer
 
-from .paths import get_wildcards_root
+from .paths import get_wildcards_roots
 from .tree_builder import TreeIndex
 
 
@@ -28,7 +28,7 @@ def _get_index() -> TreeIndex:
     global _index, _built_at
     now = time.monotonic()
     if _index is None or (now - _built_at) > _TTL_SECONDS:
-        _index = TreeIndex(get_wildcards_root())
+        _index = TreeIndex(get_wildcards_roots())
         _built_at = now
     return _index
 

@@ -44,11 +44,42 @@ There's a ready-made example workflow at
 > silently no-ops. WildcardPicker calls the same parser internally at
 > execution time, sidestepping that limitation.
 
+## Wildcard roots
+
+The picker reads the same two roots Impact-Pack reads at runtime:
+
+1. **Built-in** — `custom_nodes/comfyui-impact-pack/wildcards/`
+2. **Custom** — `[default] custom_wildcards = ...` from
+   `custom_nodes/impact-pack.ini`, if present
+
+Each shows up as its own top-level container in the tree. Reference
+paths inside both are flat — `__Junkyard/Hair/Color/Blonde__` works
+regardless of which root the file lives in. When the same path appears
+in both roots (collision), Impact-Pack's last-wins runtime behavior
+makes the Custom version win; the picker shows both visually.
+
+**Recommended setup**: keep your own wildcards in a folder *outside*
+`custom_nodes/` (so plugin reinstalls don't wipe them) and point
+`custom_wildcards` at it. Example `custom_nodes/impact-pack.ini`:
+
+```ini
+[default]
+custom_wildcards = G:\path\to\your\wildcards
+sam_editor_cpu = False
+sam_editor_model = sam_vit_b_01ec64.pth
+disable_gpu_opencv = True
+wildcard_cache_limit_mb = 50
+```
+
+Note: include all 5 keys above. Impact-Pack's config reader has a quirk
+that falls back to all defaults (ignoring `custom_wildcards`) if other
+keys are missing.
+
 ## Tree structure
 
-The tree mirrors the filesystem layout of
-`comfyui-impact-pack/wildcards/`. Yaml files are expanded recursively —
-each yaml dict is a folder, each leaf string/list is selectable.
+The tree mirrors the filesystem layout of each root. Yaml files are
+expanded recursively — each yaml dict is a folder, each leaf string or
+list is selectable.
 
 | Icon | Kind            | What you see                              |
 |------|-----------------|-------------------------------------------|

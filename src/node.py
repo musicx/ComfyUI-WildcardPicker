@@ -61,6 +61,11 @@ class WildcardPicker:
     FUNCTION = "process"
     CATEGORY = "WildcardPicker"
 
+    # OUTPUT_NODE is what makes ComfyUI forward the `ui` payload from
+    # process() to the frontend. The frontend then injects the populated
+    # text into a read-only display widget on the node.
+    OUTPUT_NODE = True
+
     @classmethod
     def IS_CHANGED(cls, text: str, seed: int = 0):
         # Make ComfyUI re-execute whenever the seed (or text) changes so the
@@ -70,7 +75,10 @@ class WildcardPicker:
 
     def process(self, text: str, seed: int = 0):
         resolved = _resolve(text, seed)
-        return (resolved,)
+        return {
+            "ui": {"populated_text": [resolved]},
+            "result": (resolved,),
+        }
 
 
 NODE_CLASS_MAPPINGS = {

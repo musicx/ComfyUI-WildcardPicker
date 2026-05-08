@@ -12,6 +12,7 @@
  * (M4). The "Insert" button at bottom is a placeholder stub.
  */
 import { app } from "../../scripts/app.js";
+import { ComfyWidgets } from "../../scripts/widgets.js";
 
 // =========================================================================
 // Module state (single modal across all node instances)
@@ -38,9 +39,64 @@ app.registerExtension({
             this.addWidget("button", "📂 Browse wildcards", null, () => {
                 openBrowser(this, textWidget);
             });
+            ensurePopulatedDisplay(this);
+            reorderWidgets(this);
+        };
+        // Receives the "ui" payload from the Python side after each run and
+        // mirrors it into the read-only display widget.
+        const origOnExecuted = nodeType.prototype.onExecuted;
+        nodeType.prototype.onExecuted = function (message) {
+            origOnExecuted?.apply(this, arguments);
+            const lines = message?.populated_text;
+            if (!lines || !lines.length) return;
+            const w = ensurePopulatedDisplay(this);
+            const value = lines.join("");
+            w.value = value;
+            if (w.inputEl) w.inputEl.value = value;
+            // Trigger a redraw so the canvas rendering of the widget refreshes.
+            this.graph?.setDirtyCanvas?.(true, false);
         };
     },
 });
+
+/**
+ * Create the read-only "populated_text" display widget if it doesn't exist
+ * yet. Returns the widget either way. Mirrors the pysssss ShowText pattern.
+ */
+function ensurePopulatedDisplay(node) {
+    let w = node.widgets?.find(x => x.name === "populated_text");
+    if (w) return w;
+    w = ComfyWidgets["STRING"](
+        node,
+        "populated_text",
+        ["STRING", { multiline: true }],
+        app,
+    ).widget;
+    if (w.inputEl) {
+        w.inputEl.readOnly = true;
+        w.inputEl.style.opacity = 0.7;
+        w.inputEl.placeholder = "(populated text appears here after running)";
+    }
+    return w;
+}
+
+/**
+ * Sort widgets into the visually natural order:
+ *   text  →  Browse button  →  seed  →  control_after_generate  →  populated_text
+ */
+function reorderWidgets(node) {
+    if (!node.widgets) return;
+    const ord = (w) => {
+        const n = w.name || "";
+        if (n === "text") return 0;
+        if (n.includes("Browse")) return 1;
+        if (n === "seed") return 2;
+        if (n === "control_after_generate") return 3;
+        if (n === "populated_text") return 4;
+        return 50;
+    };
+    node.widgets.sort((a, b) => ord(a) - ord(b));
+}
 
 // =========================================================================
 // Styles
